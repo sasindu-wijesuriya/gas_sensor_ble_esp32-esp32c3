@@ -20,7 +20,7 @@ bool automatically_put_to_AP_mode = false;
 unsigned long previousMillis = 0;
 unsigned long previousMillisForAPMode = 0;
 const long blink_interval = 500;
-const long wifi_search_interval = 30000;
+const long wifi_search_interval = 120000;
 int led_state = 0;
 int number_of_failed_attempts_to_connect_to_server = 0;
 int max_number_of_failed_attempts = 4;
@@ -270,6 +270,11 @@ void blinkLEDInAPMode()
           bluetooth_sending_status = true;
           Serial.println("Data loaded from EEPROM.");
           Serial.println("Scanning for Gas sensor of MAC address: " + selected_sensor_mac_address);
+        }
+        else
+        {
+          Serial.println("Failed to connect to the last saved Wi-Fi network.\nRestarting AP mode...");
+          WiFi.mode(WIFI_AP);
         }
       }
     }
