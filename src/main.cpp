@@ -16,11 +16,14 @@
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
 bool inSensorSearchingMode = false;
+bool automatically_put_to_AP_mode = false;
 unsigned long previousMillis = 0;
+unsigned long previousMillisForAPMode = 0;
 const long blink_interval = 500;
+const long wifi_search_interval = 30000;
 int led_state = 0;
 int number_of_failed_attempts_to_connect_to_server = 0;
-int max_number_of_failed_attempts = 5;
+int max_number_of_failed_attempts = 4;
 
 String tankSize = "NA";
 String timeZone = "NA";
@@ -61,6 +64,7 @@ String postData;
 
 void indicateSuccessfulConnection();
 void indicateSuccessfulDataSendToServer();
+bool tryConnectToSavedWiFi();
 
 std::string string_to_hex(const std::string &input)
 {
@@ -137,7 +141,7 @@ void sendDataToServer(void *param)
     Serial.println("Connection to server failed");
     number_of_failed_attempts_to_connect_to_server++;
     Serial.println("Number of failed attempts: " + String(number_of_failed_attempts_to_connect_to_server));
-    if (number_of_failed_attempts_to_connect_to_server > max_number_of_failed_attempts)
+    if (number_of_failed_attempts_to_connect_to_server >= max_number_of_failed_attempts)
     {
       Serial.println("Restarting ESP");
       ESP.restart();
@@ -252,6 +256,23 @@ void blinkLEDInAPMode()
     previousMillis = currentMillis;
     led_state = !led_state;
     digitalWrite(BUILTIN_LED, led_state);
+    if (automatically_put_to_AP_mode)
+    {
+      if (currentMillis - previousMillisForAPMode >= wifi_search_interval)
+      {
+        Serial.println("Trying to connect to the last saved Wi-Fi network...");
+        previousMillisForAPMode = currentMillis;
+        if (tryConnectToSavedWiFi())
+        {
+          inAPMode = false;
+          WiFi.mode(WIFI_STA);
+          indicateSuccessfulConnection();
+          bluetooth_sending_status = true;
+          Serial.println("Data loaded from EEPROM.");
+          Serial.println("Scanning for Gas sensor of MAC address: " + selected_sensor_mac_address);
+        }
+      }
+    }
   }
 }
 
@@ -262,6 +283,7 @@ void handleButtonPress()
     delay(100);
     if (digitalRead(BOOT_PIN) == LOW)
     {
+      automatically_put_to_AP_mode = false;
       switchToAPMode();
     }
   }
@@ -624,6 +646,7 @@ void setup()
     Serial.println("Access Point Started");
     Serial.print("AP IP Address: ");
     Serial.println(WiFi.softAPIP());
+    automatically_put_to_AP_mode = true;
     inAPMode = true;
   }
   else
