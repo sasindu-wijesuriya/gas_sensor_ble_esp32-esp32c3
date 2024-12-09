@@ -12,18 +12,18 @@
 #include <AsyncTCP.h>
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
+#include <ElegantOTA.h>
 
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
 bool inSensorSearchingMode = false;
-bool automatically_put_to_AP_mode = false;
 unsigned long previousMillis = 0;
 unsigned long previousMillisForAPMode = 0;
-const long blink_interval = 500;
-const long wifi_search_interval = 120000;
+unsigned long ota_progress_millis = 0;
 int led_state = 0;
 int number_of_failed_attempts_to_connect_to_server = 0;
 int max_number_of_failed_attempts = 4;
+bool automatically_put_to_AP_mode = false;
 
 String tankSize = "NA";
 String timeZone = "NA";
@@ -33,7 +33,7 @@ String loadedHeight = "NA";
 String selected_sensor_mac_address = "NA";
 
 const int scanTimeSeconds = 1;
-const int BOOT_PIN = 9;
+const int BOOT_PIN = 0;
 const int SSID_ADDR = 0;
 const int PASS_ADDR = 50;
 const int TANKSIZE_ADDR = 100;
@@ -45,6 +45,8 @@ const int SENSOR_MAC_ADDR = 350;
 const int EEPROM_SIZE = 512;
 const int httpsPort = 443;
 const int sound_speed = 757;
+const long blink_interval = 500;
+const long wifi_search_interval = 120000;
 const char *ap_ssid = "Gateway";
 const char *ap_password = "123456789";
 const char *serverHost = "elysiumapi.overleap.lk";
@@ -64,7 +66,9 @@ String postData;
 
 void indicateSuccessfulConnection();
 void indicateSuccessfulDataSendToServer();
+void blinkLEDinErrorPattern(int number_of_blinks);
 bool tryConnectToSavedWiFi();
+bool handleButtonPress();
 
 std::string string_to_hex(const std::string &input)
 {
@@ -93,6 +97,33 @@ std::string format_hex_string(const std::string &hexString)
   return formattedString;
 }
 
+void onOTAStart()
+{
+  Serial.println("OTA update started!");
+}
+
+void onOTAProgress(size_t current, size_t final)
+{
+  if (millis() - ota_progress_millis > 1000)
+  {
+    ota_progress_millis = millis();
+    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
+  }
+}
+
+void onOTAEnd(bool success)
+{
+  if (success)
+  {
+    Serial.println("OTA update finished successfully!");
+  }
+  else
+  {
+    Serial.println("There was an error during OTA update!");
+  }
+  ESP.restart();
+}
+
 int hex_to_int(const std::string &hexString)
 {
   return strtol(hexString.c_str(), nullptr, 16);
@@ -100,9 +131,20 @@ int hex_to_int(const std::string &hexString)
 
 void sendDataToServer(void *param)
 {
+  Serial.println("\n****************************************************************************************************");
+
+  if (client.connect("www.google.com", 443))
+  {
+    Serial.println("Internet connection: OK");
+  }
+  else
+  {
+    Serial.println("Internet connection: FAILED!!!!!");
+  }
+  client.stop();
+
   if (client.connect(serverHost, httpsPort))
   {
-    Serial.println("****************************************************************************************************");
     Serial.println("Connected to server. Sending data... ");
     Serial.println("JSON Data:");
     Serial.println(postData);
@@ -119,6 +161,16 @@ void sendDataToServer(void *param)
     bool isHeader = true;
     int responseCode = -1;
     String responseBody = "";
+
+    int freeHeap = ESP.getFreeHeap();
+    Serial.println("Free heap memory: " + String(freeHeap));
+
+    if (freeHeap < 20000)
+    {
+      Serial.println("Free heap memory is low. Restarting ESP");
+      blinkLEDinErrorPattern(4); // Blink LED 4 times in error pattern
+      ESP.restart();
+    }
 
     while (client.connected() && (millis() - timeout) < 5000)
     {
@@ -144,6 +196,7 @@ void sendDataToServer(void *param)
     if (number_of_failed_attempts_to_connect_to_server >= max_number_of_failed_attempts)
     {
       Serial.println("Restarting ESP");
+      blinkLEDinErrorPattern(2); // Blink LED 2 times in error pattern
       ESP.restart();
     }
   }
@@ -250,48 +303,53 @@ void switchToAPMode()
 
 void blinkLEDInAPMode()
 {
-  unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= blink_interval)
+  if (automatically_put_to_AP_mode)
   {
-    previousMillis = currentMillis;
-    led_state = !led_state;
-    digitalWrite(BUILTIN_LED, led_state);
-    if (automatically_put_to_AP_mode)
+    Serial.println("Trying to connect to the last saved Wi-Fi network...");
+    if (tryConnectToSavedWiFi())
     {
-      if (currentMillis - previousMillisForAPMode >= wifi_search_interval)
-      {
-        Serial.println("Trying to connect to the last saved Wi-Fi network...");
-        previousMillisForAPMode = currentMillis;
-        if (tryConnectToSavedWiFi())
-        {
-          inAPMode = false;
-          WiFi.mode(WIFI_STA);
-          indicateSuccessfulConnection();
-          bluetooth_sending_status = true;
-          Serial.println("Data loaded from EEPROM.");
-          Serial.println("Scanning for Gas sensor of MAC address: " + selected_sensor_mac_address);
-        }
-        else
-        {
-          Serial.println("Failed to connect to the last saved Wi-Fi network.\nRestarting AP mode...");
-          WiFi.mode(WIFI_AP);
-        }
-      }
+      inAPMode = false;
+      WiFi.mode(WIFI_STA);
+      bluetooth_sending_status = true;
+      Serial.println("Connected to the last saved Wi-Fi network... Restarting the gateway");
+      delay(500);
+      ESP.restart();
+    }
+    else
+    {
+      Serial.println("Failed to connect to the last saved Wi-Fi network.\nRetrying in 2 second...");
+      delay(2000);
+      WiFi.mode(WIFI_AP_STA);
+      handleButtonPress();
+    }
+  }
+  else
+  {
+    unsigned long currentMillis = millis();
+    if (currentMillis - previousMillis >= blink_interval)
+    {
+      previousMillis = currentMillis;
+      led_state = !led_state;
+      digitalWrite(BUILTIN_LED, led_state);
     }
   }
 }
 
-void handleButtonPress()
+bool handleButtonPress()
 {
-  if (digitalRead(BOOT_PIN) == LOW && inAPMode == false)
+  if (digitalRead(BOOT_PIN) == LOW)
   {
     delay(100);
     if (digitalRead(BOOT_PIN) == LOW)
     {
+      Serial.println("\nBoot Button press recognized");
       automatically_put_to_AP_mode = false;
       switchToAPMode();
+      return true;
     }
+    return false;
   }
+  return false;
 }
 
 void saveWiFiCredentials(const String &ssid, const String &password)
@@ -390,6 +448,7 @@ void loadWiFiCredentials(String &ssid, String &password)
 
 bool tryConnectToSavedWiFi()
 {
+  WiFi.mode(WIFI_AP_STA);
   String savedSSID, savedPassword;
   loadWiFiCredentials(savedSSID, savedPassword);
 
@@ -415,9 +474,12 @@ bool tryConnectToSavedWiFi()
       Serial.println("\nSuccessfully connected to saved Wi-Fi");
       Serial.print("IP Address: ");
       Serial.println(WiFi.localIP());
+      inAPMode = false;
       return true;
     }
   }
+  Serial.println("Failed to connect to saved Wi-Fi");
+  WiFi.mode(WIFI_AP_STA);
   return false;
 }
 
@@ -466,6 +528,21 @@ void indicateSuccessfulConnection()
   digitalWrite(BUILTIN_LED, HIGH); // Turn the LED on
   delay(3000);                     // Keep the LED on for 3 seconds
   digitalWrite(BUILTIN_LED, LOW);  // Turn the LED off
+}
+
+void blinkLEDinErrorPattern(int number_of_blinks)
+{
+  for (int i = 0; i < number_of_blinks; i++)
+  {
+    digitalWrite(BUILTIN_LED, HIGH);
+    delay(30);
+    digitalWrite(BUILTIN_LED, LOW);
+    delay(30);
+    digitalWrite(BUILTIN_LED, HIGH);
+    delay(500);
+    digitalWrite(BUILTIN_LED, LOW);
+    delay(500);
+  }
 }
 
 void handle_other_config()
@@ -640,19 +717,25 @@ void setup()
   server.on("/check/v1/check-internet", HTTP_GET, handle_check_internet_connection);
   server.on("/check/v1/confirm-synced-sensor", HTTP_GET, handle_confirm_synced_sensor);
   server.on("/check/v1/sync-sensor", HTTP_GET, handle_sync_sensor);
+  server.on("/", []()
+            { server.send(200, "text/plain", "Hi! This is ElegantOTA Demo."); });
   bluetooth_sending_status = false;
 
   // Try to connect to saved Wi-Fi credentials and load other configuration data
   if (!tryConnectToSavedWiFi() || timeZone == "NA" || tankSize == "NA" || longitude == "NA" || latitude == "NA" || loadedHeight == "NA" || selected_sensor_mac_address == "NA")
   {
-    Serial.println("Starting AP mode");
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(ap_ssid, ap_password);
-    Serial.println("Access Point Started");
-    Serial.print("AP IP Address: ");
-    Serial.println(WiFi.softAPIP());
-    automatically_put_to_AP_mode = true;
-    inAPMode = true;
+
+    if (!handleButtonPress())
+    {
+      Serial.println("Automatically starting AP mode");
+      WiFi.mode(WIFI_AP_STA);
+      WiFi.softAP(ap_ssid, ap_password);
+      Serial.println("Access Point Started");
+      Serial.print("AP IP Address: ");
+      Serial.println(WiFi.softAPIP());
+      automatically_put_to_AP_mode = true;
+      inAPMode = true;
+    }
   }
   else
   {
