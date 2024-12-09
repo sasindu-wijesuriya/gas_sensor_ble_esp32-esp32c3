@@ -33,7 +33,7 @@ String loadedHeight = "NA";
 String selected_sensor_mac_address = "NA";
 
 const int scanTimeSeconds = 1;
-const int BOOT_PIN = 0;
+const int BOOT_PIN = 9;
 const int SSID_ADDR = 0;
 const int PASS_ADDR = 50;
 const int TANKSIZE_ADDR = 100;
@@ -727,12 +727,12 @@ void setup()
 
     if (!handleButtonPress())
     {
-      Serial.println("Automatically starting AP mode");
+      Serial.println("Automatically trying to connect to the last saved Wi-Fi network.\nPlease press BOOT button to enter AP mode.");
       WiFi.mode(WIFI_AP_STA);
       WiFi.softAP(ap_ssid, ap_password);
-      Serial.println("Access Point Started");
-      Serial.print("AP IP Address: ");
-      Serial.println(WiFi.softAPIP());
+      // Serial.println("Access Point Started");
+      // Serial.print("AP IP Address: ");
+      // Serial.println(WiFi.softAPIP());
       automatically_put_to_AP_mode = true;
       inAPMode = true;
     }
