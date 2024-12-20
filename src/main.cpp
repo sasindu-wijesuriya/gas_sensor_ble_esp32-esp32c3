@@ -14,6 +14,9 @@
 #include <WiFiClientSecure.h>
 #include <ElegantOTA.h>
 
+// gateway firmware version
+String gatewayFWVersion = "C3-1.0.0";
+
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
 bool inSensorSearchingMode = false;
@@ -261,7 +264,7 @@ class AdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 
             postData = String("{\"DATETIME\":") + String(epochTime) +
                        ",\"IMEI\":\"" + String(advertisedDevice.getAddress().toString().c_str()) + "\"," +
-                       "\"NCU_FW_VER\":109," +
+                       "\"NCU_FW_VER\":\"" + String(gatewayFWVersion) + "\"," +
                        "\"GAS_METER\":" + String(measurement / 10) + "," +
                        "\"CSQ\":104," +
                        "\"MCU_TEMP\":30," +
