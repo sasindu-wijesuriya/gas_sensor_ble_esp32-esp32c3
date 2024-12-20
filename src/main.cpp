@@ -15,7 +15,7 @@
 #include <ElegantOTA.h>
 
 // gateway firmware version
-String gatewayFWVersion = "C3-1.0.1";
+String gatewayFWVersion = "C3-1.0.2";
 
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
@@ -188,6 +188,10 @@ void sendDataToServer(void *param)
         number_of_failed_attempts_to_connect_to_server = 0;
         break;
       }
+      else
+      {
+        number_of_failed_attempts_to_connect_to_server++;
+      }
     }
     client.stop();
   }
@@ -196,12 +200,12 @@ void sendDataToServer(void *param)
     Serial.println("Connection to server failed");
     number_of_failed_attempts_to_connect_to_server++;
     Serial.println("Number of failed attempts: " + String(number_of_failed_attempts_to_connect_to_server));
-    if (number_of_failed_attempts_to_connect_to_server >= max_number_of_failed_attempts)
-    {
-      Serial.println("Restarting ESP");
-      blinkLEDinErrorPattern(2); // Blink LED 2 times in error pattern
-      ESP.restart();
-    }
+  }
+  if (number_of_failed_attempts_to_connect_to_server >= max_number_of_failed_attempts)
+  {
+    Serial.println("Restarting ESP");
+    blinkLEDinErrorPattern(2); // Blink LED 2 times in error pattern
+    ESP.restart();
   }
 
   vTaskDelete(NULL); // Delete the task once the HTTPS request is done
