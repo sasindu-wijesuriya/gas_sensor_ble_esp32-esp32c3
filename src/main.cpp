@@ -15,7 +15,7 @@
 #include <ElegantOTA.h>
 
 // gateway firmware version
-String gatewayFWVersion = "C3-1.0.0";
+String gatewayFWVersion = "C3-1.0.1";
 
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
