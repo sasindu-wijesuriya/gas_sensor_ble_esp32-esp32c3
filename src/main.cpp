@@ -34,6 +34,8 @@ String longitude = "NA";
 String latitude = "NA";
 String loadedHeight = "NA";
 String selected_sensor_mac_address = "NA";
+String gatewayURL = "NA";
+String apiKey = "NA";
 
 const int scanTimeSeconds = 1;
 const int BOOT_PIN = 9;
@@ -45,6 +47,7 @@ const int LONGITUDE_ADDR = 200;
 const int LATITUDE_ADDR = 250;
 const int LOADED_HEIGHT_ADDR = 300;
 const int SENSOR_MAC_ADDR = 350;
+const int API_KEY_ADDR = 400;
 const int EEPROM_SIZE = 512;
 const int httpsPort = 443;
 const int sound_speed = 757;
@@ -52,8 +55,11 @@ const long blink_interval = 500;
 const long wifi_search_interval = 120000;
 const char *ap_ssid = "Gateway";
 const char *ap_password = "123456789";
-const char *serverHost = "elysiumapi.overleap.lk";
-const char *apiPath = "/api/v2/gas/stream/esp32_que"; // API endpoint
+// const char *serverHost = "elysiumapi.overleap.lk";
+// const char *apiPath = "/api/v2/gas/stream/esp32_que"; // API endpoint
+const char *serverHost = "gateway.industryx.io";
+const char *apiPath = "/api/v1/gas/stream/gas_que"; // API endpoint
+// const String apiKeyHardCoded = "S+6nCxThMZvzQYDy3z2NMWSaF6wvPjSvCtPOkPMrKII=";
 
 static unsigned long lastSendTime = 0;
 
@@ -155,6 +161,7 @@ void sendDataToServer(void *param)
     client.println(String("POST ") + apiPath + " HTTP/1.1");
     client.println(String("Host: ") + serverHost);
     client.println("Content-Type: application/json");
+    client.println("X-API-KEY: " + apiKey);
     client.print("Content-Length: ");
     client.println(postData.length());
     client.println();
@@ -377,7 +384,7 @@ void saveWiFiCredentials(const String &ssid, const String &password)
   EEPROM.commit();
 }
 
-void saveOtherConfigDataToEEPROM(const String &tankSize, const String &timeZone, const String &longitude, const String &latitude, const String &loadedHeight)
+void saveOtherConfigDataToEEPROM(const String &tankSize, const String &timeZone, const String &longitude, const String &latitude, const String &loadedHeight, const String &apiKey)
 {
   EEPROM.begin(EEPROM_SIZE);
 
@@ -391,6 +398,8 @@ void saveOtherConfigDataToEEPROM(const String &tankSize, const String &timeZone,
     EEPROM.write(i, 0);
   for (int i = LOADED_HEIGHT_ADDR; i < LOADED_HEIGHT_ADDR + 50; i++)
     EEPROM.write(i, 0);
+  for (int i = API_KEY_ADDR; i < API_KEY_ADDR + 50; i++)
+    EEPROM.write(i, 0);
 
   for (int i = 0; i < tankSize.length(); i++)
     EEPROM.write(TANKSIZE_ADDR + i, tankSize[i]);
@@ -402,6 +411,8 @@ void saveOtherConfigDataToEEPROM(const String &tankSize, const String &timeZone,
     EEPROM.write(LATITUDE_ADDR + i, latitude[i]);
   for (int i = 0; i < loadedHeight.length(); i++)
     EEPROM.write(LOADED_HEIGHT_ADDR + i, loadedHeight[i]);
+  for (int i = 0; i < apiKey.length(); i++)
+    EEPROM.write(API_KEY_ADDR + i, apiKey[i]);
 
   EEPROM.commit();
   Serial.println("Saved other configuration data to EEPROM");
@@ -429,6 +440,7 @@ void loadWiFiCredentials(String &ssid, String &password)
   char latitudeBuff[50];
   char loadedHeightBuff[50];
   char selectedSensorMacBuff[50];
+  char apiKeyBuff[50];
 
   for (int i = 0; i < 50; i++)
     tankSizeBuff[i] = EEPROM.read(TANKSIZE_ADDR + i);
@@ -442,6 +454,8 @@ void loadWiFiCredentials(String &ssid, String &password)
     loadedHeightBuff[i] = EEPROM.read(LOADED_HEIGHT_ADDR + i);
   for (int i = 0; i < 50; i++)
     selectedSensorMacBuff[i] = EEPROM.read(SENSOR_MAC_ADDR + i);
+  for (int i = 0; i < 50; i++)
+    apiKeyBuff[i] = EEPROM.read(API_KEY_ADDR + i);
 
   tankSize = String(tankSizeBuff);
   timeZone = String(timeZoneBuff);
@@ -449,6 +463,7 @@ void loadWiFiCredentials(String &ssid, String &password)
   latitude = String(latitudeBuff);
   loadedHeight = String(loadedHeightBuff);
   selected_sensor_mac_address = String(selectedSensorMacBuff);
+  apiKey = String(apiKeyBuff);
 
   Serial.println("Loaded other configuration data from EEPROM");
 }
@@ -575,6 +590,7 @@ void handle_other_config()
     longitude = doc["longitude"].as<String>();
     latitude = doc["latitude"].as<String>();
     loadedHeight = doc["loadedHeight"].as<String>();
+    apiKey = doc["apiKey"].as<String>();
 
     Serial.print("Received TankSize: ");
     Serial.print(tankSize);
@@ -586,10 +602,12 @@ void handle_other_config()
     Serial.println(latitude);
     Serial.print("\tLoaded Height: ");
     Serial.println(loadedHeight);
+    Serial.print("\tAPI Key: ");
+    Serial.println(apiKey);
 
     server.send(200, "application/json", "{\"status\": 1}");
 
-    saveOtherConfigDataToEEPROM(tankSize, timeZone, longitude, latitude, loadedHeight);
+    saveOtherConfigDataToEEPROM(tankSize, timeZone, longitude, latitude, loadedHeight, apiKey);
     Serial.println("Restart the gateway to start sending data to the server");
   }
   else
@@ -724,12 +742,12 @@ void setup()
   server.on("/check/v1/check-internet", HTTP_GET, handle_check_internet_connection);
   server.on("/check/v1/confirm-synced-sensor", HTTP_GET, handle_confirm_synced_sensor);
   server.on("/check/v1/sync-sensor", HTTP_GET, handle_sync_sensor);
-  server.on("/", []()
-            { server.send(200, "text/plain", "Hi! This is ElegantOTA Demo."); });
+  server.on("/about-us", []()
+            { server.send(200, "text/plain", "Hi! This is made by Nimsara & Sasindu."); });
   bluetooth_sending_status = false;
 
   // Try to connect to saved Wi-Fi credentials and load other configuration data
-  if (!tryConnectToSavedWiFi() || timeZone == "NA" || tankSize == "NA" || longitude == "NA" || latitude == "NA" || loadedHeight == "NA" || selected_sensor_mac_address == "NA")
+  if (!tryConnectToSavedWiFi() || timeZone == "NA" || tankSize == "NA" || longitude == "NA" || latitude == "NA" || loadedHeight == "NA" || selected_sensor_mac_address == "NA" || apiKey == "NA")
   {
 
     if (!handleButtonPress())
