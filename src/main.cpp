@@ -582,8 +582,8 @@ void handle_other_config()
     Serial.println(latitude);
     Serial.print("\tLoaded Height: ");
     Serial.println(loadedHeight);
-    Serial.print("\tAPI Key: ");
-    Serial.println(apiKey);
+    // Serial.print("\tAPI Key: ");
+    // Serial.println(apiKey);
 
     server.send(200, "application/json", "{\"status\": 1}");
 
