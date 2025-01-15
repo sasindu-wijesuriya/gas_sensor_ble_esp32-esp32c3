@@ -562,8 +562,8 @@ void handle_other_config()
       return;
     }
 
-    Serial.print("Received JSON: ");
-    serializeJsonPretty(doc, Serial);
+    // Serial.print("Received JSON: ");
+    // serializeJsonPretty(doc, Serial);
 
     tankSize = doc["tankSize"].as<String>();
     timeZone = doc["timeZone"].as<String>();
