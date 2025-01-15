@@ -9,20 +9,17 @@
 #include <BLEAdvertisedDevice.h>
 #include <NTPClient.h>
 #include <WiFiUdp.h>
-#include <AsyncTCP.h>
 #include <ArduinoJson.h>
 #include <WiFiClientSecure.h>
-#include <ElegantOTA.h>
 
 // gateway firmware version
-String gatewayFWVersion = "C3-1.0.2";
+String gatewayFWVersion = "C3-1.0.3";
 
 bool inAPMode = false;
 bool bluetooth_sending_status = false;
 bool inSensorSearchingMode = false;
 unsigned long previousMillis = 0;
 unsigned long previousMillisForAPMode = 0;
-unsigned long ota_progress_millis = 0;
 int led_state = 0;
 int number_of_failed_attempts_to_connect_to_server = 0;
 int max_number_of_failed_attempts = 4;
@@ -51,15 +48,18 @@ const int API_KEY_ADDR = 400;
 const int EEPROM_SIZE = 512;
 const int httpsPort = 443;
 const int sound_speed = 757;
+const int data_packet_sending_time = 10000;
+const int delay_after_failed_attempt_to_send_data = 2000;
 const long blink_interval = 500;
 const long wifi_search_interval = 120000;
 const char *ap_ssid = "Gateway";
 const char *ap_password = "123456789";
-// const char *serverHost = "elysiumapi.overleap.lk";
-// const char *apiPath = "/api/v2/gas/stream/esp32_que"; // API endpoint
 const char *serverHost = "gateway.industryx.io";
-const char *apiPath = "/api/v1/gas/stream/gas_que"; // API endpoint
-// const String apiKeyHardCoded = "S+6nCxThMZvzQYDy3z2NMWSaF6wvPjSvCtPOkPMrKII=";
+const char *apiPath = "/api/v1/gas/stream/esp32_que"; // API endpoint
+
+// old server details
+//  const char *serverHost = "elysiumapi.overleap.lk";
+//  const char *apiPath = "/api/v2/gas/stream/esp32_que"; // API endpoint
 
 static unsigned long lastSendTime = 0;
 
@@ -104,33 +104,6 @@ std::string format_hex_string(const std::string &hexString)
     }
   }
   return formattedString;
-}
-
-void onOTAStart()
-{
-  Serial.println("OTA update started!");
-}
-
-void onOTAProgress(size_t current, size_t final)
-{
-  if (millis() - ota_progress_millis > 1000)
-  {
-    ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
-  }
-}
-
-void onOTAEnd(bool success)
-{
-  if (success)
-  {
-    Serial.println("OTA update finished successfully!");
-  }
-  else
-  {
-    Serial.println("There was an error during OTA update!");
-  }
-  ESP.restart();
 }
 
 int hex_to_int(const std::string &hexString)
@@ -178,11 +151,11 @@ void sendDataToServer(void *param)
     if (freeHeap < 20000)
     {
       Serial.println("Free heap memory is low. Restarting ESP");
-      blinkLEDinErrorPattern(4); // Blink LED 4 times in error pattern
+      blinkLEDinErrorPattern(4);
       ESP.restart();
     }
 
-    while (client.connected() && (millis() - timeout) < 5000)
+    while (client.connected() && (millis() - timeout) < data_packet_sending_time)
     {
       String response = client.readString();
       responseCode = response.substring(9, 12).toInt();
@@ -198,6 +171,7 @@ void sendDataToServer(void *param)
       else
       {
         number_of_failed_attempts_to_connect_to_server++;
+        delay(delay_after_failed_attempt_to_send_data);
       }
     }
     client.stop();
@@ -320,18 +294,21 @@ void blinkLEDInAPMode()
   if (automatically_put_to_AP_mode)
   {
     Serial.println("Trying to connect to the last saved Wi-Fi network...");
+    digitalWrite(BUILTIN_LED, HIGH);
     if (tryConnectToSavedWiFi())
     {
       inAPMode = false;
       WiFi.mode(WIFI_STA);
       bluetooth_sending_status = true;
       Serial.println("Connected to the last saved Wi-Fi network... Restarting the gateway");
+      digitalWrite(BUILTIN_LED, LOW);
       delay(500);
       ESP.restart();
     }
     else
     {
       Serial.println("Failed to connect to the last saved Wi-Fi network.\nRetrying in 2 second...");
+      digitalWrite(BUILTIN_LED, HIGH);
       delay(2000);
       WiFi.mode(WIFI_AP_STA);
       handleButtonPress();
@@ -585,6 +562,9 @@ void handle_other_config()
       return;
     }
 
+    Serial.print("Received JSON: ");
+    serializeJsonPretty(doc, Serial);
+
     tankSize = doc["tankSize"].as<String>();
     timeZone = doc["timeZone"].as<String>();
     longitude = doc["longitude"].as<String>();
@@ -746,7 +726,6 @@ void setup()
             { server.send(200, "text/plain", "Hi! This is made by Nimsara & Sasindu."); });
   bluetooth_sending_status = false;
 
-  // Try to connect to saved Wi-Fi credentials and load other configuration data
   if (!tryConnectToSavedWiFi() || timeZone == "NA" || tankSize == "NA" || longitude == "NA" || latitude == "NA" || loadedHeight == "NA" || selected_sensor_mac_address == "NA" || apiKey == "NA")
   {
 
